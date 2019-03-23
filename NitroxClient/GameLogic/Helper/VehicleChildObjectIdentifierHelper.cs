@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using NitroxClient.GameLogic.Helper.VehicleChildObjectSyncers;
 using NitroxModel.DataStructures.GameLogic;
 using NitroxModel.Logger;
 using UnityEngine;
@@ -10,19 +9,22 @@ namespace NitroxClient.GameLogic.Helper
 {
     public class VehicleChildObjectIdentifierHelper
     {
-        private static readonly List<Type> interactiveChildTypes = new List<Type>() // we must sync guids of these types when creating vehicles (mainly cyclops)
+        private static IVehicleChildIdentifierSyncer defaultChildIdentifierSyncer = new DefaultVehicleChildIdentifierSyncer();
+
+        private static readonly Dictionary<Type, IVehicleChildIdentifierSyncer> childIdentifierSyncersByType = new Dictionary<Type, IVehicleChildIdentifierSyncer>()
         {
-            { typeof(Openable) },
-            { typeof(CyclopsLocker) },
-            { typeof(Fabricator) },
-            { typeof(FireExtinguisherHolder) },
-            { typeof(StorageContainer) },
-            { typeof(SeamothStorageContainer) },
-            { typeof(VehicleDockingBay) },
-            { typeof(DockedVehicleHandTarget) },
-            { typeof(UpgradeConsole) },
-            { typeof(DockingBayDoor) },
-            { typeof(CyclopsDecoyLoadingTube) }
+            { typeof(Openable), defaultChildIdentifierSyncer },
+            { typeof(CyclopsLocker), defaultChildIdentifierSyncer  },
+            { typeof(Fabricator), defaultChildIdentifierSyncer },
+            { typeof(FireExtinguisherHolder), defaultChildIdentifierSyncer },
+            { typeof(StorageContainer), defaultChildIdentifierSyncer },
+            { typeof(SeamothStorageContainer), defaultChildIdentifierSyncer },
+            { typeof(VehicleDockingBay), defaultChildIdentifierSyncer },
+            { typeof(DockedVehicleHandTarget), defaultChildIdentifierSyncer },
+            { typeof(UpgradeConsole), defaultChildIdentifierSyncer },
+            { typeof(DockingBayDoor), defaultChildIdentifierSyncer },
+            { typeof(CyclopsDecoyLoadingTube), defaultChildIdentifierSyncer },
+            { typeof(EnergyMixin), new EnergyMixinVehicleChildIdentifierSyncer() }
         };
 
         public static  List<InteractiveChildObjectIdentifier> ExtractGuidsOfInteractiveChildren(GameObject constructedObject)
@@ -31,17 +33,19 @@ namespace NitroxClient.GameLogic.Helper
 
             string constructedObjectsName = constructedObject.GetFullName() + "/";
 
-            foreach (Type type in interactiveChildTypes)
+            foreach (KeyValuePair<Type, IVehicleChildIdentifierSyncer> syncerWithType in childIdentifierSyncersByType)
             {
+                Type type = syncerWithType.Key;
+                IVehicleChildIdentifierSyncer syncer = syncerWithType.Value;
+
                 Component[] components = constructedObject.GetComponentsInChildren(type, true);
 
                 foreach (Component component in components)
                 {
-                    string guid = GuidHelper.GetGuid(component.gameObject);
                     string componentName = component.gameObject.GetFullName();
-                    string relativePathName = componentName.Replace(constructedObjectsName, "");
+                    string componentPath = componentName.Replace(constructedObjectsName, "");
 
-                    ids.Add(new InteractiveChildObjectIdentifier(guid, relativePathName));
+                    ids.Add(syncer.ExtractId(component, componentPath));
                 }
             }
 
@@ -52,12 +56,12 @@ namespace NitroxClient.GameLogic.Helper
         {
             foreach (InteractiveChildObjectIdentifier childIdentifier in interactiveChildIdentifiers)
             {
+                IVehicleChildIdentifierSyncer syncer = childIdentifierSyncersByType[childIdentifier.Type];
                 Transform transform = constructedObject.transform.Find(childIdentifier.GameObjectNamePath);
 
                 if (transform != null)
                 {
-                    GameObject gameObject = transform.gameObject;
-                    GuidHelper.SetNewGuid(gameObject, childIdentifier.Guid);
+                    syncer.SetId(transform.gameObject, childIdentifier);
                 }
                 else
                 {
